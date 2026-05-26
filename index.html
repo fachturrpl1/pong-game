@@ -81,7 +81,7 @@
         // Particles
         var particles = [];
 
-        // Variabel animasi denyut paddle (Fitur 1)
+        // Variabel animasi denyut paddle
         var pulseTime = 0;
 
         function emitP(x, y, color, count) {
@@ -242,7 +242,7 @@
             
             isPowerBall = false;
             powerType   = null;
-            ball.trail  = []; // Membersihkan sisa ekor power-up instan
+            ball.trail  = []; 
         }
 
         // Reset
@@ -279,26 +279,6 @@
             paddle[1].label = (paddleMode[1]==='human') ? 'P2' : 'AI';
         }
 
-        // Fungsi pembantu untuk mendapatkan warna dinamis bola berdasarkan kecepatan (Fitur 4)
-        function getBallColorBySpeed() {
-            if (isPowerBall) {
-                if (powerType === 'freeze') return '#00cfff';
-                if (powerType === 'grow') return '#ffe066';
-                if (powerType === 'shrink') return '#ff6b6b';
-            }
-            var speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            // Normalisasi rentang kecepatan: anggap 250 ke bawah itu lambat (biru), 450 ke atas itu cepat (merah)
-            var minSpd = 250;
-            var maxSpd = 450;
-            var ratio = Math.max(0, Math.min(1, (speed - minSpd) / (maxSpd - minSpd)));
-            
-            // Interpolasi warna dari Biru (#4facfe) ke Merah (#ff4b4b)
-            var r = Math.round(79 + (255 - 79) * ratio);
-            var g = Math.round(172 + (75 - 172) * ratio);
-            var b = Math.round(254 + (75 - 254) * ratio);
-            return 'rgb(' + r + ',' + g + ',' + b + ')';
-        }
-
         // Update
         function update(dt) {
             if (gameState !== 'playing') return;
@@ -306,7 +286,7 @@
             updateParticles(dt);
             updateFloatTexts(dt);
 
-            // Update waktu denyut paddle (Fitur 1)
+            // Update waktu denyut paddle
             pulseTime += dt * 7; 
 
             if (shake.timer > 0) {
@@ -317,7 +297,7 @@
 
             isSlowMo = slowMoTimer > 0;
             if (slowMoTimer > 0) slowMoTimer -= dt;
-            var cdt = isSlowMo ? dt * 0.4 : dt; // Fitur 3: Manipulasi Delta Time global saat slow-mo aktif
+            var cdt = isSlowMo ? dt * 0.4 : dt; 
 
             for (var i = 0; i < 2; i++) {
                 if (freezeTimer[i] > 0) { freezeTimer[i] -= dt; continue; }
@@ -356,17 +336,16 @@
                 ball.x - ball.r < p0.x + PW &&
                 ball.y > p0.y && ball.y < p0.y + p0.h
             ) {
-                var currentBallColor = getBallColorBySpeed();
                 if (isPowerBall) { 
                     applyPowerToPaddle(0); 
                 } else { 
-                    emitP(p0.x+PW, ball.y, currentBallColor, 6); 
+                    emitP(p0.x+PW, ball.y, '#4facfe', 6); // Kembali ke warna asli biru p1
                 }
                 ball.vx = Math.abs(ball.vx) * 1.05;
                 ball.vy = ((ball.y-(p0.y+p0.h/2)) / (p0.h/2)) * 220;
                 if (!isPowerBall) trySpawnPower();
                 playBlip(500, 0.1);
-                slowMoTimer = 0.5; // Fitur 3: Picu slow motion durasi 0.5 detik
+                slowMoTimer = 0.5; 
             }
 
             var p1 = paddle[1];
@@ -374,17 +353,16 @@
                 ball.x + ball.r > p1.x &&
                 ball.y > p1.y && ball.y < p1.y + p1.h
             ) {
-                var currentBallColor = getBallColorBySpeed();
                 if (isPowerBall) { 
                     applyPowerToPaddle(1); 
                 } else { 
-                    emitP(p1.x, ball.y, currentBallColor, 6); 
+                    emitP(p1.x, ball.y, '#ff6b6b', 6); // Kembali ke warna asli merah p2
                 }
                 ball.vx = -Math.abs(ball.vx) * 1.05;
                 ball.vy = ((ball.y-(p1.y+p1.h/2)) / (p1.h/2)) * 220;
                 if (!isPowerBall) trySpawnPower();
                 playBlip(400, 0.1);
-                slowMoTimer = 0.5; // Fitur 3: Picu slow motion durasi 0.5 detik
+                slowMoTimer = 0.5; 
             }
 
             // Goal kiri
@@ -437,24 +415,15 @@
             ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.restore();
         }
 
-        // Modifikasi Fungsi Menggambar Paddle untuk Efek Berdenyut (Fitur 1)
         function drawPaddleWithGlow(idx, defaultColor) {
             var p = paddle[idx];
             ctx.save();
             
-            // Hitung jarak horizontal dari bola ke permukaan paddle terdekat
-            var distanceX = 0;
-            if (idx === 0) {
-                distanceX = Math.abs(ball.x - (p.x + p.w));
-            } else {
-                distanceX = Math.abs(p.x - ball.x);
-            }
+            var distanceX = (idx === 0) ? Math.abs(ball.x - (p.x + p.w)) : Math.abs(p.x - ball.x);
+            var glowSize = 10; 
             
-            var glowSize = 10; // Nilai dasar glow jika bola jauh
-            
-            // Jika bola mendekat dalam radius 100px secara horizontal, lakukan modulasi sinus (denyut)
             if (distanceX <= 100) {
-                var amplitude = 12; // Kekuatan rentang tambahan denyutan (10 - 22)
+                var amplitude = 12; 
                 glowSize = 10 + Math.abs(Math.sin(pulseTime)) * amplitude;
             }
             
@@ -465,15 +434,15 @@
             ctx.restore();
         }
 
-        // Modifikasi Fungsi Menggambar Bola untuk Warna Dinamis Kecepatan (Fitur 4)
+        // BATALKAN WARNA DI SINI: Bola kembali normal (#fff) jika bukan power-up aktif
         function drawBallWithGlow() {
-            var ballColor = getBallColorBySpeed();
+            var ballColor = '#fff'; 
             var symbol = '';
             
             if (isPowerBall) {
-                if (powerType === 'freeze') symbol = '❄';
-                else if (powerType === 'grow') symbol = '+';
-                else if (powerType === 'shrink') symbol = '−';
+                if (powerType === 'freeze') { ballColor = '#00cfff'; symbol = '❄'; }
+                else if (powerType === 'grow') { ballColor = '#ffe066'; symbol = '+'; }
+                else if (powerType === 'shrink') { ballColor = '#ff6b6b'; symbol = '−'; }
             }
             
             ctx.save();
@@ -569,12 +538,16 @@
             var p0Color = freezeTimer[0]>0 ? '#a0e0ff' : '#4facfe',
                 p1Color = freezeTimer[1]>0 ? '#a0e0ff' : '#ff6b6b';
             
-            // Panggil fungsi gambar paddle baru dengan modulasi denyut (Fitur 1)
             drawPaddleWithGlow(0, p0Color); 
             drawPaddleWithGlow(1, p1Color);
 
-            // Ambil warna dinamis untuk diaplikasikan ke ekor trail (Fitur 4)
-            var trailColor = getBallColorBySpeed();
+            // BATALKAN WARNA DI SINI: Ekor trail kembali mengikuti warna status bola
+            var trailColor = '#fff';
+            if (isPowerBall) {
+                if (powerType === 'freeze') trailColor = '#00cfff';
+                else if (powerType === 'grow') trailColor = '#ffe066';
+                else if (powerType === 'shrink') trailColor = '#ff6b6b';
+            }
             
             for (var i = 0; i < ball.trail.length; i++) {
                 ctx.save();
@@ -615,7 +588,7 @@
             if (paddle[0].h !== PH_BASE) { ctx.fillStyle = paddle[0].h > PH_BASE ? '#ffe066' : '#ff6b6b'; ctx.font='10px Arial'; ctx.textAlign='left'; ctx.fillText('H:'+paddle[0].h, 20, 130); }
             if (paddle[1].h !== PH_BASE) { ctx.fillStyle = paddle[1].h > PH_BASE ? '#ffe066' : '#ff6b6b'; ctx.font='10px Arial'; ctx.textAlign='right'; ctx.fillText('H:'+paddle[1].h, W-20, 130); }
 
-            // Fitur 2: Speedometer Akurat Real-time HUD Menggunakan Math.sqrt
+            // Speedometer Akurat Real-time HUD (Tetap dipertahankan)
             var spd = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
             ctx.fillStyle = isSlowMo ? '#ff6b6b' : 'rgba(255,255,255,0.4)'; ctx.font='12px Arial'; ctx.textAlign='left';
             ctx.fillText('SPD ' + Math.round(spd) + (isSlowMo ? '   SLOW-MO' : ''), 20, 28);
@@ -647,7 +620,7 @@
 
             if (gameState==='playing') {
                 if (e.key==='p' || e.key==='P' || e.key==='Escape') { gameState='pause'; return; }
-                if (e.key==='Shift' && slowMoTimer<=0) { slowMoTimer=1.0; } // Slow-mo manual bawaan via shift
+                if (e.key==='Shift' && slowMoTimer<=0) { slowMoTimer=1.0; } 
                 if (e.key==='r'||e.key==='R') { resetGame(); gameState='playing'; return; }
             }
 
