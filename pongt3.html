@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>My Gim Gua</title>
+        <style>
+            body {
+                margin: 0;
+                background: #111111;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+            }
+            canvas {
+                background: rgb(55, 55, 55);
+                border:1px solid rgb(216, 216, 216)
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="c" width="480" height="520"></canvas>
+        <script>
+            var canvas = document.getElementById("c"),
+                ctx = canvas.getContext('2d');
+            var W = canvas.width,
+                H = canvas.height,
+                keys = {},
+                lastTime = 0;
+
+            var scorePlayer = 0,
+                scoreAI = 0;
+            var shakeTimer = 0, shakeX = 0, shakeY = 0; 
+            var gameState='splash';
+            var highScore=parseInt(localStorage.getItem('pongHS')||'0');
+
+            var PH = 80,
+                PW = 20;
+
+            var player = {
+                x: 10,
+                y: H / 2 - PH / 2,
+                w: PW,
+                h: PH,
+                spd: 320,
+            }
+
+            var ai = {
+                x: W - 10 - PW,
+                y: H / 2,
+                w: PW,
+                h: PH
+            }
+
+            var ball = {
+                x: W / 2,
+                y: H / 2,
+                vx: 200,
+                vy: 150,
+                r: 9,
+                color: '#ffffff',
+                trail: [] 
+            }
+
+            var dt = 1.016;
+            var baseAiSpd = 160;
+            var aiSpd = baseAiSpd;
+
+            var gameOver = false;
+            var winner = "";
+            var WIN_SCORE = 3;
+
+            var isTwoPlayer = true;      // Tantangan 2: Aktifkan mode 2 Player otomatis
+            var slowMoTimer = 0;         // Tantangan 4: Timer slow motion
+            var isSlowMo = false;        // Tantangan 4: State slow motion
+
+            var audioCtx = null;
+            function getAudioCtx() {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                return audioCtx;
+            }
+
+            function playBlip(freq, duration) {
+                try {
+                    var ctx2 = getAudioCtx();
+                    var osc = ctx2.createOscillator();
+                    var gain = ctx2.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx2.destination);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(freq, ctx2.currentTime);
+                    gain.gain.setValueAtTime(0.15, ctx2.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + duration);
+                    osc.start(ctx2.currentTime);
+                    osc.stop(ctx2.currentTime + duration);
+                } catch(e) {}
+            }
+
+            function update(dt) {
+                if (gameOver) return;
+
+                if (shakeTimer > 0) {
+                    shakeTimer -= dt;
+                    shakeX = (Math.random() - 0.5) * 8; 
+                    shakeY = (Math.random() - 0.5) * 8;
+                } else {
+                    shakeX = 0;
+                    shakeY = 0;
+                }
+
+                // Tantangan 4: Update timer slow motion
+                if (slowMoTimer > 0) {
+                    slowMoTimer -= dt;
+                    isSlowMo = true;
+                } else {
+                    isSlowMo = false;
+                }
+
+                // Kalkulasi delta waktu dinamis untuk slow motion
+                var currentDt = isSlowMo ? dt * 0.4 : dt;
+
+                // Gerak Player 1 (W / S)
+                if (keys['w']) player.y -= player.spd * currentDt;
+                if (keys['s']) player.y += player.spd * currentDt;
+                player.y = Math.max(0, Math.min(H - PH, player.y));
+
+                // Tantangan 2: Kontrol Paddle Kanan (AI / Player 2) menggunakan tombol I / K
+                if (isTwoPlayer) {
+                    if (keys['i']) ai.y -= baseAiSpd * 1.5 * currentDt;
+                    if (keys['k']) ai.y += baseAiSpd * 1.5 * currentDt;
+                    ai.y = Math.max(0, Math.min(H - PH, ai.y));
+                } else {
+                    var aiTgt = ball.y - PH / 2,
+                        aiDiff = aiTgt - ai.y;
+                    ai.y += Math.sign(aiDiff) * Math.min(Math.abs(aiDiff), aiSpd * currentDt);
+                    ai.y = Math.max(0, Math.min(H - PH, ai.y));
+                }
+
+                ball.trail.push({ x: ball.x, y: ball.y });
+                if (ball.trail.length > 8) {
+                    ball.trail.shift();
+                }
+
+                ball.x += ball.vx * currentDt;
+                ball.y += ball.vy * currentDt;
+
+                if (ball.y - ball.r < 0) {
+                    ball.y = ball.r;
+                    ball.vy = Math.abs(ball.vy);
+                    playBlip(300, 0.08);
+                }
+                if (ball.y + ball.r > H) {
+                    ball.y = H - ball.r;
+                    ball.vy = -Math.abs(ball.vy);
+                    playBlip(300, 0.08);
+                }
+
+                if (
+                    ball.vx < 0 &&
+                    ball.x - ball.r < player.x + PW &&
+                    ball.y > player.y &&
+                    ball.y < player.y + PH
+                ) {
+                    ball.vx = Math.abs(ball.vx) * 1.02;
+                    var rel = (ball.y - (player.y + PH / 2)) / (PH / 2);
+                    ball.vy = rel * 220;
+                    playBlip(500, 0.1);
+                }
+
+                if (
+                    ball.vx > 0 &&
+                    ball.x + ball.r > ai.x &&
+                    ball.y > ai.y &&
+                    ball.y < ai.y + PH
+                ) {
+                    ball.vx = -Math.abs(ball.vx) * 1.05;
+                    var rel = (ball.y - (ai.y + PH / 2)) / (PH / 2);
+                    ball.vy = rel * 220;
+                    playBlip(400, 0.1);
+                }
+
+                if (ball.x - ball.r < 0) {
+                    scoreAI++;
+                    shakeTimer = 0.2; 
+                    playBlip(150, 0.3);
+                    resetBall(200);
+
+                    if (scoreAI >= WIN_SCORE) {
+                        gameOver = true;
+                        winner = isTwoPlayer ? "PLAYER 2" : "AI";
+                    }
+                }
+                
+                if (ball.x + ball.r > W) {
+                    scorePlayer++;
+                    playBlip(800, 0.2);
+                    resetBall(-200);
+
+                    aiSpd = baseAiSpd + (scorePlayer * 20);
+
+                    if (scorePlayer > highScore) {
+                        highScore = scorePlayer;
+                        localStorage.setItem('pongHS', highScore.toString());
+                    }
+
+                    if (scorePlayer >= WIN_SCORE) {
+                        gameOver = true;
+                        winner = isTwoPlayer ? "PLAYER 1" : "PLAYER";
+                    }
+                }
+            }
+
+            function resetBall(vx) {
+                ball.x = W / 2;
+                ball.y = H / 2;
+                ball.vx = vx;
+                ball.vy = 150;
+                ball.trail = [];
+            }
+
+            function render() {
+                ctx.save(); 
+                ctx.translate(shakeX, shakeY); 
+
+                ctx.fillStyle = '#0b0c10';
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.save();
+                ctx.setLineDash([12, 10]);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(W / 2, 0);
+                ctx.lineTo(W / 2, H);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+
+                ctx.fillStyle = '#4facfe';
+                ctx.fillRect(player.x, player.y, player.w, player.h);
+
+                ctx.fillStyle = '#ff6b6b';
+                ctx.fillRect(ai.x, ai.y, ai.w, ai.h);
+
+                for (var i = 0; i < ball.trail.length; i++) {
+                    ctx.globalAlpha = (i / ball.trail.length) * 0.3;
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(ball.trail[i].x, ball.trail[i].y, ball.r * (i / ball.trail.length), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1; 
+
+                // Tantangan 1: Efek Glow Semi-Transparan di Belakang Bola
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.r * 2.5, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.fill();
+                ctx.restore();
+
+                // Bola Utama
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+
+                // Skor Utama
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.font = 'bold 60px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(scorePlayer + ' ' + scoreAI, W / 2, 80);
+
+                // --- TANTANGAN 3: Tampilan Speedometer ---
+                var ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+                ctx.fillStyle = isSlowMo ? '#ff6b6b' : 'rgba(255, 255, 255, 0.5)';
+                ctx.font = 'bold 13px Arial';
+                ctx.textAlign = 'left';
+                
+                var speedText = 'SPEED: ' + Math.round(ballSpeed) + ' PIXEL/DETIK';
+                if (isSlowMo) {
+                    speedText += ' (SLOW-MO)';
+                }
+                ctx.fillText(speedText, 20, 30);
+
+                if (gameOver) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+                    ctx.fillRect(0, 0, W, H);
+
+                    ctx.fillStyle = winner.includes("1") || winner === "PLAYER" ? '#4facfe' : '#ff6b6b';
+                    ctx.font = 'bold 72px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(winner === "AI" ? "LOSE" : winner + "!", W / 2, H / 2 - 40);
+
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('HIGH SCORE: ' + highScore, W / 2, H / 2 + 25);
+
+                    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                    ctx.font = '18px Arial';
+                    ctx.fillText('Tekan ENTER untuk main lagi', W / 2, H / 2 + 85);
+                }
+
+                ctx.restore(); 
+            }
+
+            function restartGame() {
+                scorePlayer = 0;
+                scoreAI = 0;
+                aiSpd = baseAiSpd;
+                gameOver = false;
+                winner = "";
+                slowMoTimer = 0;
+                isSlowMo = false;
+                player.y = H / 2 - PH / 2;
+                ai.y = H / 2;
+                resetBall(200);
+            }
+
+            function loop(ts) {
+                var dt = Math.min((ts - lastTime) / 1000, 0.05);
+                lastTime = ts;
+                update(dt);
+                render();
+                requestAnimationFrame(loop);
+            }
+
+            document.addEventListener('keydown', function (e) {
+                keys[e.key] = true;
+
+                if (e.key === 'Enter' && gameOver) {
+                    restartGame();
+                } else if (e.key === 'r' || e.key === 'R') {
+                    restartGame();
+                }
+
+                // Tantangan 4: Keydown Shift untuk mengaktifkan Slow Motion
+                if (e.key === 'Shift' && !gameOver && slowMoTimer <= 0) {
+                    slowMoTimer = 1.0; 
+                }
+            });
+            document.addEventListener('keyup', function (e) {
+                keys[e.key] = false;
+            });
+
+            requestAnimationFrame(function (ts) {
+                lastTime = ts;
+                requestAnimationFrame(loop);
+            });
+        </script>
+    </body>
+</html>
