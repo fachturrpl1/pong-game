@@ -73,9 +73,9 @@
         // Freeze Timer per paddle
         var freezeTimer = [0, 0];
 
-        // Power-up Ball (Hierarki Tunggal)
+        // Power-ups
         var isPowerBall  = false;
-        var powerType    = null; // Bisa berisi: 'freeze', 'grow', atau 'shrink'
+        var powerType    = null;
         var POWER_CHANCE = 0.20;
 
         // Particles
@@ -155,24 +155,42 @@
             { label: 'AI       vs  P2 Human',   modes: ['ai','human'] }
         ];
 
-        // Audio
+        // --- PERBAIKAN AUDIO UNTUK MENCEGAH LAG ---
         var audioCtx = null;
-        function getAudioCtx() {
-            if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-            return audioCtx;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
         }
+
         function playBlip(freq, duration) {
+            // Jika audioCtx belum siap atau gagal diinisialisasi, abaikan suara agar tidak crash
+            if (!audioCtx) return; 
+            
             try {
-                var c2   = getAudioCtx();
-                var osc  = c2.createOscillator();
-                var gain = c2.createGain();
-                osc.connect(gain); gain.connect(c2.destination);
+                // Pastikan status audio aktif (mengatasi kebijakan autoplay browser)
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                
+                var osc  = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                osc.connect(gain); 
+                gain.connect(audioCtx.destination);
+                
                 osc.type = 'square';
-                osc.frequency.setValueAtTime(freq, c2.currentTime);
-                gain.gain.setValueAtTime(0.15, c2.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, c2.currentTime+duration);
-                osc.start(c2.currentTime); osc.stop(c2.currentTime+duration);
-            } catch(e) {}
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                
+                osc.start(audioCtx.currentTime); 
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {
+                console.log("Audio play blocked or failed:", e);
+            }
         }
 
         // High Score
@@ -287,7 +305,6 @@
                     if (keys[KEYS[i].up])   paddle[i].y -= paddle[i].spd * cdt;
                     if (keys[KEYS[i].down]) paddle[i].y += paddle[i].spd * cdt;
                 } else {
-                    // AI Kebingungan jika bola membawa efek negatif/mempengaruhi kalkulasi normal
                     var tgt = (isPowerBall && (powerType === 'freeze' || powerType === 'shrink'))
                         ? (ball.y < H/2 ? H - paddle[i].h : 0)
                         : ball.y - paddle[i].h/2;
@@ -348,7 +365,6 @@
 
             // Goal kiri
             if (ball.x - ball.r < 0) {
-                // Jika bola power-up pembawa petaka terlewat, efek dibatalkan dan bola memantul balik
                 if (isPowerBall && (powerType === 'freeze' || powerType === 'shrink')) {
                     ball.x = ball.r; ball.vx = Math.abs(ball.vx); isPowerBall = false; powerType = null; playBlip(200, 0.12);
                 } else {
@@ -374,7 +390,6 @@
 
             // Goal kanan
             if (ball.x + ball.r > W) {
-                // Jika bola power-up pembawa petaka terlewat, efek dibatalkan dan bola memantul balik
                 if (isPowerBall && (powerType === 'freeze' || powerType === 'shrink')) {
                     ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); isPowerBall = false; powerType = null; playBlip(200, 0.12);
                 } else {
@@ -527,7 +542,7 @@
             }
             ctx.globalAlpha = 1;
 
-            drawBallWithGlow(); updateParticles(); drawParticles(); drawFloatTexts();
+            drawBallWithGlow(); drawParticles(); drawFloatTexts();
 
             // HUD
             ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center';
@@ -548,10 +563,9 @@
 
             // HUD Info Power-up Aktif di Bawah Layar
             if (isPowerBall) {
-                ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
-                if (powerType === 'freeze') { ctx.fillStyle = '#00cfff'; ctx.fillText('🔵 FREEZE ball', W/2, H-12); }
-                else if (powerType === 'grow') { ctx.fillStyle = '#ffe066'; ctx.fillText('🟡 +GROW ball', W/2, H-12); }
-                else if (powerType === 'shrink') { ctx.fillStyle = '#ff6b6b'; ctx.fillText('🔴 -SHRINK ball', W/2, H-12); }
+                if (powerType === 'freeze') { ctx.fillStyle = '#00cfff'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.fillText('🔵 FREEZE ball', W/2, H-12); }
+                else if (powerType === 'grow') { ctx.fillStyle = '#ffe066'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.fillText('🟡 +GROW ball', W/2, H-12); }
+                else if (powerType === 'shrink') { ctx.fillStyle = '#ff6b6b'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.fillText('🔴 -SHRINK ball', W/2, H-12); }
             }
             
             if (paddle[0].h !== PH_BASE) { ctx.fillStyle = paddle[0].h > PH_BASE ? '#ffe066' : '#ff6b6b'; ctx.font='10px Arial'; ctx.textAlign='left'; ctx.fillText('H:'+paddle[0].h, 20, 130); }
@@ -580,6 +594,9 @@
         // Event Listener
         document.addEventListener('keydown', function(e) {
             keys[e.key] = true;
+
+            // Pemicu inisialisasi Audio saat user melakukan interaksi pertama (Sesuai aturan Web Audio API)
+            initAudio();
 
             if (gameState==='splash' && e.key==='Enter') {
                 applyPauseOption(pauseOption); resetGame(); gameState='playing'; return;
