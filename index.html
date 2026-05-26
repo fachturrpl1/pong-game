@@ -81,6 +81,9 @@
         // Particles
         var particles = [];
 
+        // Variabel animasi denyut paddle (Fitur 1)
+        var pulseTime = 0;
+
         function emitP(x, y, color, count) {
             count = count || 6;
             for (var i = 0; i < count * 3; i++) {
@@ -108,13 +111,14 @@
         function drawParticles() {
             for (var i = 0; i < particles.length; i++) {
                 var p = particles[i];
+                ctx.save();
                 ctx.globalAlpha = Math.max(0, p.life);
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
                 ctx.fillStyle = p.color;
                 ctx.fill();
+                ctx.restore();
             }
-            ctx.globalAlpha = 1;
         }
 
         // Floating Texts
@@ -155,7 +159,7 @@
             { label: 'AI       vs  P2 Human',   modes: ['ai','human'] }
         ];
 
-        // --- PERBAIKAN AUDIO UNTUK MENCEGAH LAG ---
+        // --- AUDIO ---
         var audioCtx = null;
         function initAudio() {
             if (!audioCtx) {
@@ -167,15 +171,11 @@
         }
 
         function playBlip(freq, duration) {
-            // Jika audioCtx belum siap atau gagal diinisialisasi, abaikan suara agar tidak crash
             if (!audioCtx) return; 
-            
             try {
-                // Pastikan status audio aktif (mengatasi kebijakan autoplay browser)
                 if (audioCtx.state === 'suspended') {
                     audioCtx.resume();
                 }
-                
                 var osc  = audioCtx.createOscillator();
                 var gain = audioCtx.createGain();
                 osc.connect(gain); 
@@ -207,8 +207,6 @@
             if (Math.random() < POWER_CHANCE) {
                 var roll = Math.random();
                 isPowerBall = true;
-                
-                // Distribusi adil 1/3 untuk hierarki yang sama
                 if (roll < 1/3) {
                     powerType = 'freeze';
                 } else if (roll < 2/3) {
@@ -238,15 +236,13 @@
             }
 
             paddle[idx].y = Math.max(0, Math.min(H - paddle[idx].h, paddle[idx].y));
-            
-            spawnFloat(paddle[idx].x + PW/2 + (idx === 0 ? 40 : -40),
-                       paddle[idx].y + paddle[idx].h/2, label, col);
-            
+            spawnFloat(paddle[idx].x + PW/2 + (idx === 0 ? 40 : -40), paddle[idx].y + paddle[idx].h/2, label, col);
             emitP(ball.x, ball.y, col, 6);
             playBlip(powerType === 'grow' ? 660 : 220, 0.18);
             
             isPowerBall = false;
             powerType   = null;
+            ball.trail  = []; // Membersihkan sisa ekor power-up instan
         }
 
         // Reset
@@ -270,6 +266,7 @@
             freezeTimer[0]  = 0; freezeTimer[1] = 0;
             shake.timer     = 0; shake.x = 0; shake.y = 0;
             particles       = []; floatTexts = [];
+            pulseTime       = 0;
             
             var randomStartVx = Math.random() > 0.5 ? 200 : -200;
             resetBall(randomStartVx);
@@ -282,12 +279,35 @@
             paddle[1].label = (paddleMode[1]==='human') ? 'P2' : 'AI';
         }
 
+        // Fungsi pembantu untuk mendapatkan warna dinamis bola berdasarkan kecepatan (Fitur 4)
+        function getBallColorBySpeed() {
+            if (isPowerBall) {
+                if (powerType === 'freeze') return '#00cfff';
+                if (powerType === 'grow') return '#ffe066';
+                if (powerType === 'shrink') return '#ff6b6b';
+            }
+            var speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+            // Normalisasi rentang kecepatan: anggap 250 ke bawah itu lambat (biru), 450 ke atas itu cepat (merah)
+            var minSpd = 250;
+            var maxSpd = 450;
+            var ratio = Math.max(0, Math.min(1, (speed - minSpd) / (maxSpd - minSpd)));
+            
+            // Interpolasi warna dari Biru (#4facfe) ke Merah (#ff4b4b)
+            var r = Math.round(79 + (255 - 79) * ratio);
+            var g = Math.round(172 + (75 - 172) * ratio);
+            var b = Math.round(254 + (75 - 254) * ratio);
+            return 'rgb(' + r + ',' + g + ',' + b + ')';
+        }
+
         // Update
         function update(dt) {
             if (gameState !== 'playing') return;
 
             updateParticles(dt);
             updateFloatTexts(dt);
+
+            // Update waktu denyut paddle (Fitur 1)
+            pulseTime += dt * 7; 
 
             if (shake.timer > 0) {
                 shake.timer -= dt;
@@ -297,7 +317,7 @@
 
             isSlowMo = slowMoTimer > 0;
             if (slowMoTimer > 0) slowMoTimer -= dt;
-            var cdt = isSlowMo ? dt*0.4 : dt;
+            var cdt = isSlowMo ? dt * 0.4 : dt; // Fitur 3: Manipulasi Delta Time global saat slow-mo aktif
 
             for (var i = 0; i < 2; i++) {
                 if (freezeTimer[i] > 0) { freezeTimer[i] -= dt; continue; }
@@ -336,15 +356,17 @@
                 ball.x - ball.r < p0.x + PW &&
                 ball.y > p0.y && ball.y < p0.y + p0.h
             ) {
+                var currentBallColor = getBallColorBySpeed();
                 if (isPowerBall) { 
                     applyPowerToPaddle(0); 
                 } else { 
-                    emitP(p0.x+PW, ball.y, '#4facfe', 6); 
+                    emitP(p0.x+PW, ball.y, currentBallColor, 6); 
                 }
                 ball.vx = Math.abs(ball.vx) * 1.05;
                 ball.vy = ((ball.y-(p0.y+p0.h/2)) / (p0.h/2)) * 220;
                 if (!isPowerBall) trySpawnPower();
                 playBlip(500, 0.1);
+                slowMoTimer = 0.5; // Fitur 3: Picu slow motion durasi 0.5 detik
             }
 
             var p1 = paddle[1];
@@ -352,33 +374,27 @@
                 ball.x + ball.r > p1.x &&
                 ball.y > p1.y && ball.y < p1.y + p1.h
             ) {
+                var currentBallColor = getBallColorBySpeed();
                 if (isPowerBall) { 
                     applyPowerToPaddle(1); 
                 } else { 
-                    emitP(p1.x, ball.y, '#ff6b6b', 6); 
+                    emitP(p1.x, ball.y, currentBallColor, 6); 
                 }
                 ball.vx = -Math.abs(ball.vx) * 1.05;
                 ball.vy = ((ball.y-(p1.y+p1.h/2)) / (p1.h/2)) * 220;
                 if (!isPowerBall) trySpawnPower();
                 playBlip(400, 0.1);
+                slowMoTimer = 0.5; // Fitur 3: Picu slow motion durasi 0.5 detik
             }
 
             // Goal kiri
             if (ball.x - ball.r < 0) {
                 if (isPowerBall && (powerType === 'freeze' || powerType === 'shrink')) {
-                    ball.x = ball.r; ball.vx = Math.abs(ball.vx); isPowerBall = false; powerType = null; playBlip(200, 0.12);
+                    ball.x = ball.r; ball.vx = Math.abs(ball.vx); isPowerBall = false; powerType = null; ball.trail = []; playBlip(200, 0.12);
                 } else {
                     paddle[1].score++;
                     checkAndSaveHighScore();
-                    
-                    var p2Text = "";
-                    if (paddleMode[0] === 'human' && paddleMode[1] === 'ai') {
-                        shake.timer = 0.22; shake._int = 8;
-                        p2Text = 'AI Point!';
-                    } else {
-                        p2Text = paddle[1].label + ' Point!';
-                    }
-                    
+                    var p2Text = (paddleMode[0] === 'human' && paddleMode[1] === 'ai') ? 'AI Point!' : paddle[1].label + ' Point!';
                     spawnFloat(W/2, H/2-30, p2Text, '#ff6b6b');
                     playBlip(150, 0.3);
                     resetBall(200);
@@ -391,18 +407,11 @@
             // Goal kanan
             if (ball.x + ball.r > W) {
                 if (isPowerBall && (powerType === 'freeze' || powerType === 'shrink')) {
-                    ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); isPowerBall = false; powerType = null; playBlip(200, 0.12);
+                    ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); isPowerBall = false; powerType = null; ball.trail = []; playBlip(200, 0.12);
                 } else {
                     paddle[0].score++;
                     checkAndSaveHighScore();
-                    
-                    var p1Text = "";
-                    if (paddleMode[0] === 'human' && paddleMode[1] === 'ai') {
-                        p1Text = 'Your Point!';
-                    } else {
-                        p1Text = paddle[0].label + ' Point!';
-                    }
-                    
+                    var p1Text = (paddleMode[0] === 'human' && paddleMode[1] === 'ai') ? 'Your Point!' : paddle[0].label + ' Point!';
                     spawnFloat(W/2, H/2-30, p1Text, '#4facfe');
                     playBlip(800, 0.2);
                     resetBall(-200);
@@ -428,22 +437,53 @@
             ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.restore();
         }
 
-        function drawPaddleWithGlow(p, color) {
-            ctx.shadowBlur = 10; ctx.shadowColor = color; ctx.fillStyle = color; ctx.fillRect(p.x, p.y, p.w, p.h); ctx.shadowBlur = 0;
+        // Modifikasi Fungsi Menggambar Paddle untuk Efek Berdenyut (Fitur 1)
+        function drawPaddleWithGlow(idx, defaultColor) {
+            var p = paddle[idx];
+            ctx.save();
+            
+            // Hitung jarak horizontal dari bola ke permukaan paddle terdekat
+            var distanceX = 0;
+            if (idx === 0) {
+                distanceX = Math.abs(ball.x - (p.x + p.w));
+            } else {
+                distanceX = Math.abs(p.x - ball.x);
+            }
+            
+            var glowSize = 10; // Nilai dasar glow jika bola jauh
+            
+            // Jika bola mendekat dalam radius 100px secara horizontal, lakukan modulasi sinus (denyut)
+            if (distanceX <= 100) {
+                var amplitude = 12; // Kekuatan rentang tambahan denyutan (10 - 22)
+                glowSize = 10 + Math.abs(Math.sin(pulseTime)) * amplitude;
+            }
+            
+            ctx.shadowBlur = glowSize; 
+            ctx.shadowColor = defaultColor; 
+            ctx.fillStyle = defaultColor; 
+            ctx.fillRect(p.x, p.y, p.w, p.h); 
+            ctx.restore();
         }
 
+        // Modifikasi Fungsi Menggambar Bola untuk Warna Dinamis Kecepatan (Fitur 4)
         function drawBallWithGlow() {
-            var ballColor = '#fff';
+            var ballColor = getBallColorBySpeed();
             var symbol = '';
             
             if (isPowerBall) {
-                if (powerType === 'freeze') { ballColor = '#00cfff'; symbol = '❄'; }
-                else if (powerType === 'grow') { ballColor = '#ffe066'; symbol = '+'; }
-                else if (powerType === 'shrink') { ballColor = '#ff6b6b'; symbol = '−'; }
+                if (powerType === 'freeze') symbol = '❄';
+                else if (powerType === 'grow') symbol = '+';
+                else if (powerType === 'shrink') symbol = '−';
             }
             
-            ctx.shadowBlur = 14; ctx.shadowColor = ballColor; ctx.fillStyle = ballColor;
-            ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+            ctx.save();
+            ctx.shadowBlur = 14; 
+            ctx.shadowColor = ballColor; 
+            ctx.fillStyle = ballColor;
+            ctx.beginPath(); 
+            ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); 
+            ctx.fill(); 
+            ctx.restore();
 
             if (isPowerBall && symbol !== '') {
                 ctx.save(); ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#111';
@@ -460,7 +500,7 @@
             var modeLabel = pauseOptions[pauseOption].label.trim();
             if (endlessMode) modeLabel += ' (∞ Endless)';
             drawCenterSub('Mode: ' + modeLabel, 'rgba(255,255,255,0.3)', H/2+28, 13);
-            drawCenterSub('Power-up:  🔵 Freeze 🟡 Grow  🔴 Shrink', 'rgba(255,255,255,1)', H/2+60, 12);
+            drawCenterSub('Power-up:   🔵 Freeze 🟡 Grow  🔴 Shrink', 'rgba(255,255,255,1)', H/2+60, 12);
             drawCenterSub('ESC / P = Pause & Setting Mode', 'rgba(255,255,255,1)', H/2+78, 12);
 
             if (highScore > 0) drawCenterSub('Highscore: ' + highScore, '#ffcc00', H/2+106, 13);
@@ -528,23 +568,27 @@
 
             var p0Color = freezeTimer[0]>0 ? '#a0e0ff' : '#4facfe',
                 p1Color = freezeTimer[1]>0 ? '#a0e0ff' : '#ff6b6b';
-            drawPaddleWithGlow(paddle[0], p0Color); drawPaddleWithGlow(paddle[1], p1Color);
+            
+            // Panggil fungsi gambar paddle baru dengan modulasi denyut (Fitur 1)
+            drawPaddleWithGlow(0, p0Color); 
+            drawPaddleWithGlow(1, p1Color);
 
-            var trailColor = '#fff';
-            if (isPowerBall) {
-                if (powerType === 'freeze') trailColor = '#00cfff';
-                else if (powerType === 'grow') trailColor = '#ffe066';
-                else if (powerType === 'shrink') trailColor = '#ff6b6b';
-            }
+            // Ambil warna dinamis untuk diaplikasikan ke ekor trail (Fitur 4)
+            var trailColor = getBallColorBySpeed();
+            
             for (var i = 0; i < ball.trail.length; i++) {
-                ctx.globalAlpha = (i / ball.trail.length) * 0.35; ctx.fillStyle = trailColor; ctx.beginPath();
-                ctx.arc(ball.trail[i].x, ball.trail[i].y, ball.r * (i/ball.trail.length) * 0.9, 0, Math.PI*2); ctx.fill();
+                ctx.save();
+                ctx.globalAlpha = (i / ball.trail.length) * 0.35; 
+                ctx.fillStyle = trailColor; 
+                ctx.beginPath();
+                ctx.arc(ball.trail[i].x, ball.trail[i].y, ball.r * (i/ball.trail.length) * 0.9, 0, Math.PI*2); 
+                ctx.fill();
+                ctx.restore();
             }
-            ctx.globalAlpha = 1;
 
             drawBallWithGlow(); drawParticles(); drawFloatTexts();
 
-            // HUD
+            // HUD Skor Utama
             ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = 'bold 60px Arial'; ctx.textAlign = 'center';
             ctx.fillText(paddle[0].score + ' : ' + paddle[1].score, W/2, 80);
 
@@ -571,9 +615,10 @@
             if (paddle[0].h !== PH_BASE) { ctx.fillStyle = paddle[0].h > PH_BASE ? '#ffe066' : '#ff6b6b'; ctx.font='10px Arial'; ctx.textAlign='left'; ctx.fillText('H:'+paddle[0].h, 20, 130); }
             if (paddle[1].h !== PH_BASE) { ctx.fillStyle = paddle[1].h > PH_BASE ? '#ffe066' : '#ff6b6b'; ctx.font='10px Arial'; ctx.textAlign='right'; ctx.fillText('H:'+paddle[1].h, W-20, 130); }
 
-            var spd = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+            // Fitur 2: Speedometer Akurat Real-time HUD Menggunakan Math.sqrt
+            var spd = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
             ctx.fillStyle = isSlowMo ? '#ff6b6b' : 'rgba(255,255,255,0.4)'; ctx.font='12px Arial'; ctx.textAlign='left';
-            ctx.fillText('SPD '+Math.round(spd)+(isSlowMo?'   SLOW-MO':''), 20, 28);
+            ctx.fillText('SPD ' + Math.round(spd) + (isSlowMo ? '   SLOW-MO' : ''), 20, 28);
             ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.textAlign='right'; ctx.fillText('P = Pause', W-20, 28);
 
             ctx.restore();
@@ -594,8 +639,6 @@
         // Event Listener
         document.addEventListener('keydown', function(e) {
             keys[e.key] = true;
-
-            // Pemicu inisialisasi Audio saat user melakukan interaksi pertama (Sesuai aturan Web Audio API)
             initAudio();
 
             if (gameState==='splash' && e.key==='Enter') {
@@ -604,7 +647,7 @@
 
             if (gameState==='playing') {
                 if (e.key==='p' || e.key==='P' || e.key==='Escape') { gameState='pause'; return; }
-                if (e.key==='Shift' && slowMoTimer<=0) { slowMoTimer=1.0; }
+                if (e.key==='Shift' && slowMoTimer<=0) { slowMoTimer=1.0; } // Slow-mo manual bawaan via shift
                 if (e.key==='r'||e.key==='R') { resetGame(); gameState='playing'; return; }
             }
 
